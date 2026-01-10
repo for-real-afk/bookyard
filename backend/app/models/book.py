@@ -98,6 +98,6 @@ class FeedItem(SQLModel, table=True):
     user_id: uuid.UUID = Field(foreign_key="profile.id")
     action_type: str # upload, reservation
     content: str
-    metadata: Optional[dict] = Field(default_factory=dict, sa_column=Column(JSON))
+    feed_metadata: Optional[dict] = Field(default_factory=dict, sa_column=Column(JSON))
     is_public: bool = Field(default=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)

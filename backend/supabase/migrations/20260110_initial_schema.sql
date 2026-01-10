@@ -75,7 +75,7 @@ CREATE TABLE IF NOT EXISTS feeditem (
     user_id UUID REFERENCES profile(id) ON DELETE CASCADE,
     action_type TEXT NOT NULL,
     content TEXT NOT NULL,
-    metadata JSONB DEFAULT '{}',
+    feed_metadata JSONB DEFAULT '{}',
     is_public BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -96,13 +96,103 @@ CREATE INDEX IF NOT EXISTS idx_reservation_book ON reservation(book_id);
 ALTER TABLE book ENABLE ROW LEVEL SECURITY;
 ALTER TABLE profile ENABLE ROW LEVEL SECURITY;
 ALTER TABLE reservation ENABLE ROW LEVEL SECURITY;
+ALTER TABLE category ENABLE ROW LEVEL SECURITY;
+ALTER TABLE creditshistory ENABLE ROW LEVEL SECURITY;
+ALTER TABLE feeditem ENABLE ROW LEVEL SECURITY;
 
--- Public read access for books
+-- Category Policies
+CREATE POLICY "Public Read Access" ON category FOR SELECT USING (true);
+
+-- Profile Policies
+CREATE POLICY "Public Read Access" ON profile FOR SELECT USING (true);
+CREATE POLICY "Users Control Own Profile" ON profile FOR ALL TO authenticated USING (auth.uid() = id);
+
+-- Book Policies
 CREATE POLICY "Public Read Access" ON book FOR SELECT USING (is_active = TRUE);
-
--- Authenticated users control own books
 CREATE POLICY "Users Control Own Books" ON book 
     FOR ALL 
     TO authenticated 
     USING (auth.uid() = owner_id)
     WITH CHECK (auth.uid() = owner_id);
+
+-- Reservation Policies
+CREATE POLICY "Users Control Own Reservations" ON reservation
+    FOR ALL
+    TO authenticated
+    USING (auth.uid() = borrower_id)
+    WITH CHECK (auth.uid() = borrower_id);
+
+-- Credit History Policies
+CREATE POLICY "Users View Own Credits" ON creditshistory
+    FOR SELECT
+    TO authenticated
+    USING (auth.uid() = user_id);
+
+-- Feed Item Policies
+CREATE POLICY "Public View Public Feed" ON feeditem
+    FOR SELECT
+    USING (is_public = TRUE);
+
+CREATE POLICY "Users Control Own Feed" ON feeditem
+    FOR ALL
+    TO authenticated
+    USING (auth.uid() = user_id)
+    WITH CHECK (auth.uid() = user_id);
+
+-- 11. Automatic Feed Triggers
+CREATE OR REPLACE FUNCTION public.handle_new_book() 
+RETURNS TRIGGER AS $$
+BEGIN
+    INSERT INTO public.feeditem (user_id, action_type, content, feed_metadata)
+    VALUES (NEW.owner_id, 'book_added', 'Added a new book: ' || NEW.title, jsonb_build_object('book_id', NEW.id, 'title', NEW.title));
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DO $$ BEGIN
+    CREATE TRIGGER on_book_added
+        AFTER INSERT ON public.book
+        FOR EACH ROW EXECUTE FUNCTION public.handle_new_book();
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
+
+CREATE OR REPLACE FUNCTION public.handle_new_reservation() 
+RETURNS TRIGGER AS $$
+BEGIN
+    INSERT INTO public.feeditem (user_id, action_type, content, feed_metadata)
+    VALUES (NEW.borrower_id, 'reservation_created', 'Reserved a book', jsonb_build_object('reservation_id', NEW.id, 'book_id', NEW.book_id));
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DO $$ BEGIN
+    CREATE TRIGGER on_reservation_added
+        AFTER INSERT ON public.reservation
+        FOR EACH ROW EXECUTE FUNCTION public.handle_new_reservation();
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
+
+-- 12. Automatic Profile Creation on Signup
+CREATE OR REPLACE FUNCTION public.handle_new_user() 
+RETURNS TRIGGER AS $$
+BEGIN
+    INSERT INTO public.profile (id, username, full_name, avatar_url)
+    VALUES (
+        NEW.id, 
+        COALESCE(NEW.raw_user_meta_data->>'username', NEW.email), 
+        NEW.raw_user_meta_data->>'full_name', 
+        NEW.raw_user_meta_data->>'avatar_url'
+    );
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DO $$ BEGIN
+    CREATE TRIGGER on_auth_user_created
+        AFTER INSERT ON auth.users
+        FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;

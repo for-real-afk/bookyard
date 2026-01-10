@@ -1,6 +1,7 @@
 from sqlalchemy import text
 from sqlmodel import create_engine, Session, SQLModel
 from dotenv import load_dotenv
+import os
 
 load_dotenv()
 

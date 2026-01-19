@@ -3,5 +3,6 @@
 from sqlmodel import SQLModel
 
 from app.models.book import Book
+from app.models.user_rating import UserRating
 
-__all__ = ["SQLModel", "Book"]
+__all__ = ["SQLModel", "Book", "UserRating"]

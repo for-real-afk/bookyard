@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.api import api_router
 from app.core.config import settings
+from app.services.recommendation_service import load_recommendation_data
 
 # Configure logging
 logging.basicConfig(
@@ -25,6 +26,24 @@ async def lifespan(app: FastAPI):
     """Handle application startup and shutdown."""
     logger.info(f"Starting {settings.PROJECT_NAME} v{settings.VERSION}")
     logger.info(f"Environment: {settings.ENVIRONMENT}")
+    
+    # Load recommendation data on startup
+    logger.info("Loading recommendation engine data...")
+    try:
+        success = load_recommendation_data(
+            books_path="data/Books.csv",
+            ratings_path="data/Book-Ratings.csv", 
+            users_path="data/Users.csv",
+            nrows=50000  # Increase for more data
+        )
+        if success:
+            logger.info("✓ Recommendation engine initialized successfully")
+        else:
+            logger.warning("✗ Recommendation engine initialization failed - check data files")
+    except Exception as e:
+        logger.error(f"✗ Error initializing recommendation engine: {e}")
+        logger.warning("Recommendation endpoints may not work properly")
+    
     yield
     logger.info("Shutting down application")
 
